@@ -6,3 +6,4 @@ transformers==4.51.3
 tokenizers==0.21.1
 accelerate
 python-multipart
+huggingface_hub

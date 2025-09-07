@@ -8,6 +8,9 @@ import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import logging
 
+# NEW: Import for Hugging Face model download
+from huggingface_hub import snapshot_download
+
 app = FastAPI(title="Medical Report Generator", version="1.0.0")
 
 # basic logging
@@ -36,7 +39,35 @@ try:
 except Exception:
     pass
 
+# NEW: Function to download model from Hugging Face if not present
+def download_model_if_needed():
+    """Download model from Hugging Face if not present locally"""
+    if not MODEL_DIR.exists() or not any(MODEL_DIR.iterdir()):
+        logger.info("Model not found locally. Downloading from Hugging Face...")
+        
+        try:
+            # Create directory if it doesn't exist
+            MODEL_DIR.mkdir(parents=True, exist_ok=True)
+            
+            # Download entire model directory
+            # REPLACE 'your-username/medical-report-generator' with your actual Hugging Face repo
+            snapshot_download(
+                repo_id="mtechaisouvik/medical-report-generator",  # ← REPLACE THIS
+                local_dir=str(MODEL_DIR),
+                local_dir_use_symlinks=False
+            )
+            logger.info("Model downloaded successfully!")
+            
+        except Exception as e:
+            logger.error(f"Error downloading model: {e}")
+            raise RuntimeError(f"Failed to download model from Hugging Face: {e}")
+    else:
+        logger.info("Model found locally.")
+
 def load_model_and_processor():
+    # NEW: Ensure model is downloaded before loading
+    download_model_if_needed()
+    
     if not MODEL_DIR.exists():
         raise RuntimeError(
             f"Model folder not found: {MODEL_DIR}\n"
