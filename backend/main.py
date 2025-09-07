@@ -6,8 +6,13 @@ import io
 import os
 import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
+import logging
 
 app = FastAPI(title="Medical Report Generator", version="1.0.0")
+
+# basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("medical-report")
 
 # CORS (open for dev; restrict to your frontend origin in prod)
 app.add_middleware(
@@ -45,6 +50,20 @@ def load_model_and_processor():
     )
     model.to(DEVICE)
     model.eval()
+
+    # Quick sanity checks for NaN/Inf in model params (rare but possible with bad checkpoints)
+    try:
+        for name, p in model.named_parameters():
+            if p.dtype.is_floating_point:
+                if torch.isnan(p).any().item():
+                    logger.error("Model parameter contains NaN: %s", name)
+                    raise RuntimeError(f"Model contains NaN in parameter {name}")
+                if torch.isinf(p).any().item():
+                    logger.error("Model parameter contains Inf: %s", name)
+                    raise RuntimeError(f"Model contains Inf in parameter {name}")
+    except Exception:
+        # If model parameters are not simple Tensors or check fails, skip checks gracefully
+        logger.debug("Skipping detailed model parameter checks")
     return processor, model
 
 PROCESSOR, MODEL = load_model_and_processor()
@@ -59,6 +78,20 @@ def generate_report_from_bytes(
     inputs = PROCESSOR(images=image, return_tensors="pt")
     inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
 
+    # Check inputs for NaN/Inf which can break generation
+    for k, v in inputs.items():
+        try:
+            if v.dtype.is_floating_point:
+                if not torch.isfinite(v).all().item():
+                    # log a compact summary and raise
+                    has_nan = torch.isnan(v).any().item()
+                    has_inf = torch.isinf(v).any().item()
+                    logger.error("Input tensor %s contains NaN=%s Inf=%s", k, has_nan, has_inf)
+                    raise RuntimeError(f"Preprocessor produced invalid values (NaN/Inf) in '{k}'")
+        except Exception:
+            # If the tensor doesn't support the checks, ignore safely
+            logger.debug("Could not run NaN/Inf checks on input %s", k)
+
     with torch.no_grad():
         output_ids = MODEL.generate(
             **inputs,
@@ -67,7 +100,100 @@ def generate_report_from_bytes(
             early_stopping=True,
             repetition_penalty=repetition_penalty
         )
+    if output_ids is None or len(output_ids) == 0:
+        logger.error("Model.generate returned empty output_ids: %s", output_ids)
+        raise RuntimeError("Model.generate returned no tokens")
+    # Primary decode via processor
     text = PROCESSOR.decode(output_ids[0], skip_special_tokens=True)
+
+    # If processor decode produced something invalid, attempt a safer tokenizer-based decode
+    def try_sanitized_tokenizer_decode(out_ids):
+        tokenizer = getattr(PROCESSOR, "tokenizer", None)
+        if tokenizer is None:
+            return None
+        try:
+            vocab_size = getattr(tokenizer, "vocab_size", None)
+            unk_id = getattr(tokenizer, "unk_token_id", None)
+            # fallback to last token index if unk_id not available but vocab_size is
+            if unk_id is None and isinstance(vocab_size, int) and vocab_size > 0:
+                unk_id = vocab_size - 1
+
+            ids = list(out_ids.tolist()) if hasattr(out_ids, "tolist") else list(out_ids)
+            sanitized = []
+            for i in ids:
+                if isinstance(vocab_size, int) and i >= vocab_size:
+                    # map out-of-range id to unk or last token
+                    if unk_id is not None:
+                        sanitized.append(unk_id)
+                    else:
+                        # if we truly can't map, clamp to vocab_size-1
+                        sanitized.append(max(0, (vocab_size - 1) if isinstance(vocab_size, int) else i))
+                else:
+                    sanitized.append(i)
+
+            # decode sanitized ids
+            return tokenizer.decode(sanitized, skip_special_tokens=True)
+        except Exception as e:
+            logger.debug("Sanitized tokenizer decode failed: %s", e)
+            return None
+
+    # Defensive: if decode yields a lone numeric 'nan' or an empty string, gather debug info and raise
+    if isinstance(text, str) and text.strip().lower() == "nan":
+        logger.error("Decoded text is literal 'nan' (possible tokenizer/model mismatch)")
+
+        # gather compact debug info
+        try:
+            output_tokens = output_ids[0].tolist()
+        except Exception:
+            output_tokens = None
+
+            tokenizer = getattr(PROCESSOR, "tokenizer", None)
+            alt_decoded = None
+            try:
+                # prefer sanitized decode which handles out-of-range ids
+                alt_decoded = try_sanitized_tokenizer_decode(output_ids[0]) if output_tokens is not None else None
+                if alt_decoded is None and tokenizer is not None and output_tokens is not None:
+                    alt_decoded = tokenizer.decode(output_tokens, skip_special_tokens=True)
+            except Exception as e:
+                alt_decoded = f"<tokenizer.decode error: {e}>"
+
+        model_info = {
+            "model_type": getattr(MODEL.config, "model_type", None),
+            "vocab_size": getattr(MODEL.config, "vocab_size", None),
+            "eos_token_id": getattr(MODEL.config, "eos_token_id", None),
+            "bos_token_id": getattr(MODEL.config, "bos_token_id", None),
+            "pad_token_id": getattr(MODEL.config, "pad_token_id", None),
+        }
+
+        tokenizer_info = None
+        try:
+            if tokenizer is not None:
+                tokenizer_info = {
+                    "vocab_size": getattr(tokenizer, "vocab_size", None) or len(getattr(tokenizer, "get_vocab", lambda: {})()),
+                    "special_tokens_map": getattr(tokenizer, "special_tokens_map", None),
+                }
+        except Exception:
+            tokenizer_info = None
+
+        logger.info("Decoded 'nan' debug: tokens=%s model=%s tokenizer_alt=%s tokenizer_info=%s",
+                    (output_tokens[:50] if isinstance(output_tokens, list) else output_tokens),
+                    model_info,
+                    (alt_decoded if alt_decoded is not None else "<no alt decode>"),
+                    tokenizer_info)
+        # If sanitized alt decode gives a usable string, return it instead of erroring
+        if isinstance(alt_decoded, str) and alt_decoded.strip() and alt_decoded.strip().lower() != "nan":
+            logger.info("Recovered alt_decoded from tokens: %r", alt_decoded)
+            return alt_decoded
+
+        # otherwise raise with diagnostic info
+        raise RuntimeError(
+            "Decoded output is 'nan' — possible tokenizer/model mismatch or corrupted checkpoint; "
+            f"tokens={output_tokens[:50] if isinstance(output_tokens, list) else output_tokens} "
+            f"alt_decoded={alt_decoded!r} model={model_info} tokenizer={tokenizer_info}"
+        )
+    if not text or not text.strip():
+        logger.error("Decoded text is empty or whitespace: %r", text)
+        raise RuntimeError("Decoded output is empty")
     return text
 
 @app.get("/")
