@@ -104,7 +104,7 @@ export const generateMedicalReportPDF = async (options: GeneratePDFOptions): Pro
   
   pdf.setFontSize(9);
   pdf.setFont("helvetica", "italic");
-  pdf.text("This report was generated using AI-powered medical image analysis.", margin, yPosition);
+  pdf.text("This report was generated using AI-powered medical image analysis and geport generator.", margin, yPosition);
   pdf.text("Please consult with a qualified medical professional for diagnosis and treatment.", margin, yPosition + 5);
   
   // Add page number
