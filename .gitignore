@@ -17,6 +17,8 @@ frontend/node_modules/
 # Large model files
 backend/models/
 
+medgen-souvik-backend/models/best
+
 
 *.log
 .env
@@ -31,4 +33,4 @@ __pycache__/
 
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
+yarn-error.log*backend/models/
