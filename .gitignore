@@ -17,6 +17,8 @@ frontend/node_modules/
 # Large model files
 backend/models/
 
+medgen-souvik-backend/models/best
+
 
 *.log
 .env
