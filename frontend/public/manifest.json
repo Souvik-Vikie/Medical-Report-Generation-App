@@ -1,25 +1,25 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "MedAI",
+  "name": "MedAI X-Ray Analyzer - AI Medical Image Analysis",
+  "description": "AI-Powered Medical Image Analysis and Report Generation System",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%232563eb' width='192' height='192' rx='38'/><path fill='white' d='M96 38 L58 77 L86 77 L86 115 L67 115 L67 144 L125 144 L125 115 L106 115 L106 77 L134 77 Z'/><circle fill='%23fbbf24' cx='144' cy='48' r='15'/></svg>",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "any maskable"
     },
     {
-      "src": "logo192.png",
-      "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "logo512.png",
-      "type": "image/png",
-      "sizes": "512x512"
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect fill='%232563eb' width='512' height='512' rx='102'/><path fill='white' d='M256 102 L154 205 L230 205 L230 307 L179 307 L179 384 L333 384 L333 307 L282 307 L282 205 L358 205 Z'/><circle fill='%23fbbf24' cx='384' cy='128' r='40'/></svg>",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#2563eb",
+  "background_color": "#EFF6FF",
+  "orientation": "portrait-primary",
+  "categories": ["medical", "health", "productivity"]
 }

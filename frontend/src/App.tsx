@@ -3,13 +3,24 @@ import React, { useState } from "react";
 import Header from "./components/Header";
 import ImageUploader from "./components/ImageUploader";
 import ReportViewer from "./components/ReportViewer";
+import PatientForm, { PatientData } from "./components/PatientForm";
 import Modal from "./components/Modal";
 import { uploadImageForReport } from "./api";
+import { generateMedicalReportPDF } from "./utils/pdfGenerator";
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [report, setReport] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [uploadedImage, setUploadedImage] = useState<File | null>(null);
+  const [patientData, setPatientData] = useState<PatientData>({
+    name: '',
+    age: '',
+    sex: '',
+    caseHistory: '',
+    symptoms: '',
+    referringDoctor: ''
+  });
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -29,6 +40,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError("");
     setReport("");
+    setUploadedImage(file); // Store the uploaded image
 
     try {
       const data = await uploadImageForReport(file);
@@ -50,18 +62,56 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDownloadPDF = async () => {
+    if (!report) {
+      showCustomModal("Error", "No report available to download.");
+      return;
+    }
+
+    try {
+      await generateMedicalReportPDF({
+        report,
+        image: uploadedImage || undefined,
+        patientData: patientData,
+        doctorName: patientData.referringDoctor || "Medical AI Assistant"
+      });
+      showCustomModal("Success", "PDF downloaded successfully!");
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      showCustomModal("Error", "Failed to generate PDF. Please try again.");
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 md:p-8">
       <div className="flex flex-col items-center">
         <Header />
-        <div className="w-full max-w-4xl rounded-xl shadow-lg border border-gray-200 p-8 bg-white">
-          <div className="grid md:grid-cols-2 gap-8">
-            <ImageUploader
-              onGenerate={handleGenerate}
-              busy={isLoading}
-              onErrorClear={clearError}
-            />
-            <ReportViewer report={report} error={error} />
+
+        {/* Main Content Area */}
+        <div className="w-full max-w-7xl mt-6">
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Left Column - Patient Form */}
+            <div className="lg:col-span-1">
+              <PatientForm
+                onDataChange={setPatientData}
+                disabled={isLoading}
+              />
+            </div>
+
+            {/* Right Column - X-ray Upload and Report */}
+            <div className="lg:col-span-2 space-y-6">
+              <ImageUploader
+                onGenerate={handleGenerate}
+                busy={isLoading}
+                onErrorClear={clearError}
+              />
+              <ReportViewer
+                report={report}
+                error={error}
+                uploadedImage={uploadedImage}
+                onDownloadPDF={handleDownloadPDF}
+              />
+            </div>
           </div>
         </div>
       </div>
